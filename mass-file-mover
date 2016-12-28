@@ -20,29 +20,123 @@ switch (process.argv[2]) {
 }
 
 function listDirectory (directory = '.') {
-  const fileNames = []
+  const filenames = []
   walkSync(directory, function (basedir, filename, stat) {
     if (!stat.isDirectory()) {
-      fileNames.push(filename)
+      filenames.push(filename)
     }
   })
 
-  fileNames.sort()
-  for (let fileName of fileNames) {
+  filenames.sort()
+  for (let fileName of filenames) {
     console.log(fileName)
   }
 }
 
-function moveFiles (fileList, directory = '.') {
+function moveFiles (moveList, directory = '.') {
+  if (!moveList) {
+    badUsage()
+  }
 
+  const fileList = makeFileList(directory, moveList)
+
+  const moveListLines = fs.readFileSync(moveList).toString().split('\n')
+  moveListLines.forEach(function (newPath) {
+    if(newPath) {
+      const dirname = path.dirname(newPath)
+      mkdirRecurs(dirname)
+
+      const filename = path.basename(newPath)
+      if (fileList[filename]) {
+        for (let sourceDir of fileList[filename]) {
+          let oldPath = path.join(sourceDir, filename)
+          moveFile(oldPath, newPath, function (err) {
+            if (err) {
+              console.log(`ERR: Error moving from '${oldPath} to ${newPath}`, err.message)
+            }
+          })
+        }
+      }
+      else {
+        console.log(`ERR: File '${filename}' does not exit`)
+      }
+    }
+  })
+
+  cleanEmptyFoldersRecursively(directory)
 }
 
 function badUsage () {
   console.error(`Invalid usage.
   mass-file-mover list <directory|.>
-  mass-file-mover move <fileList> <directory|.>
-`)
+  mass-file-mover move <moveList> <directory|.>`)
   process.exit(-1)
+}
+
+function makeFileList(directory, moveList) {
+  const fileList = {}
+  const moveListFilename = path.basename(moveList)
+
+  walkSync(directory, function (basedir, filename, stat) {
+    if (!stat.isDirectory()) {
+      if (moveListFilename === filename && path.join(basedir, filename) === moveList) {
+        return
+      }
+
+      if (fileList[filename]) {
+        console.log(`WARN: File '${filename} is duplicated`)
+        fileList[filename].push(basedir)
+      }
+      else {
+        fileList[filename] = [basedir]
+      }
+    }
+  })
+
+  return fileList
+}
+
+function mkdirRecurs (dirname, mode = '0777') {
+  if (!fs.existsSync(dirname)) {
+    dirname.split('/').forEach((dir, index, splits) => {
+      const parent = splits.slice(0, index).join('/')
+      const dirPath = path.resolve(parent, dir)
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, mode)
+      }
+    })
+  }
+}
+
+function moveFile(oldPath, newPath, callback) {
+  if (oldPath !== newPath) {
+    console.log(`Move '${oldPath}' --> '${newPath}'`)
+    fs.rename(oldPath, newPath, function (err) {
+      if (err) {
+        if (err.code === 'EXDEV') {
+          copyFile()
+        } else {
+          callback(err)
+        }
+        return
+      }
+      callback()
+    })
+  }
+
+  function copyFile() {
+    const readStream = fs.createReadStream(oldPath)
+    const writeStream = fs.createWriteStream(newPath)
+
+    readStream.on('error', callback)
+    writeStream.on('error', callback)
+
+    readStream.on('close', function () {
+      fs.unlink(oldPath, callback)
+    })
+
+    readStream.pipe(writeStream)
+  }
 }
 
 /**
@@ -67,7 +161,7 @@ function walkSync (dir, iterator) {
     try {
       files = fs.readdirSync(directory)
     } catch (error) {
-      console.error('ERROR: Cannot read directory ' + directory, error.message)
+      console.error(`ERR: Cannot read directory ${directory}`, error.message)
       continue
     }
 
@@ -80,12 +174,35 @@ function walkSync (dir, iterator) {
           dirs.push(f)
         }
       } catch (error) {
-        console.error('ERROR: Cannot stat ' + f, error.message)
+        console.error(`ERR: Cannot stat ${f}`, error.message)
       }
 
       if (stat) {
         iterator(directory, file, stat)
       }
     })
+  }
+}
+
+function cleanEmptyFoldersRecursively (folder) {
+  const isDir = fs.statSync(folder).isDirectory()
+  if (!isDir) {
+    return
+  }
+  let files = fs.readdirSync(folder)
+  if (files.length > 0) {
+    files.forEach(function(file) {
+      const fullPath = path.join(folder, file)
+      cleanEmptyFoldersRecursively(fullPath)
+    })
+
+    // re-evaluate files after deleting subfolder
+    // we may have parent folder empty now
+    files = fs.readdirSync(folder)
+  }
+
+  if (files.length == 0) {
+    console.log(`Removing '${folder}'`)
+    fs.rmdirSync(folder)
   }
 }
