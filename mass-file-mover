@@ -2,13 +2,48 @@
 
 const fs = require('fs')
 const path = require('path')
+const process = require('process')
 
-console.log('ok ')
+if(process.argv.length < 3) {
+  badUsage()
+}
 
-// print process.argv
-process.argv.forEach(function (val, index, array) {
-  console.log(index + ': ' + val)
-})
+switch (process.argv[2]) {
+  case 'list':
+    listDirectory(process.argv[3])
+    break
+  case 'move':
+    moveFiles(process.argv[3], process.argv[4])
+    break
+  default:
+    badUsage()
+}
+
+function listDirectory (directory = '.') {
+  const fileNames = []
+  walkSync(directory, function (basedir, filename, stat) {
+    if (!stat.isDirectory()) {
+      fileNames.push(filename)
+    }
+  })
+
+  fileNames.sort()
+  for (let fileName of fileNames) {
+    console.log(fileName)
+  }
+}
+
+function moveFiles (fileList, directory = '.') {
+
+}
+
+function badUsage () {
+  console.error(`Invalid usage.
+  mass-file-mover list <directory|.>
+  mass-file-mover move <fileList> <directory|.>
+`)
+  process.exit(-1)
+}
 
 /**
  * Synchronously list `dir` and all its descendents,
@@ -23,21 +58,22 @@ process.argv.forEach(function (val, index, array) {
  *
  */
 function walkSync (dir, iterator) {
-  var dirs = [dir]
+  const dirs = [dir]
 
   while (dirs.length) {
-    var directory = dirs.shift()
+    const directory = dirs.shift()
 
+    let files
     try {
-      var files = fs.readdirSync(directory)
+      files = fs.readdirSync(directory)
     } catch (error) {
       console.error('ERROR: Cannot read directory ' + directory, error.message)
       continue
     }
 
     files.forEach(function (file) {
-      var f = path.join(directory, file)
-      var stat
+      const f = path.join(directory, file)
+      let stat
       try {
         stat = fs.statSync(f)
         if (stat && stat.isDirectory()) {
@@ -53,9 +89,3 @@ function walkSync (dir, iterator) {
     })
   }
 }
-
-walkSync('/tmp', function (basedir, filename, stat) {
-  // var perm = stat.isDirectory() ? 0755 : 0644
-  // fs.chmodSync(path.join(basedir, filename), perm, next)
-  console.log(basedir, filename, stat.isDirectory())
-})
