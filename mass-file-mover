@@ -158,6 +158,7 @@ function moveFile(oldPath, newPath, callback) {
   if (oldPath === newPath) {
     callback()
   } else {
+    newPath = findNonExistingFilename(newPath)
     fs.rename(oldPath, newPath, function (err) {
       if (err) {
         if (err.code === 'EXDEV') {
@@ -186,6 +187,22 @@ function moveFile(oldPath, newPath, callback) {
     })
 
     readStream.pipe(writeStream)
+  }
+}
+
+function findNonExistingFilename(fullPath) {
+  let count = 0
+  let result = fullPath
+  while (true) {
+    if (!fs.existsSync(result)) {
+      return result
+    }
+
+    let extname = path.extname(fullPath)
+    const basename = path.basename(fullPath, extname)
+
+    count++
+    result = `${basename}-${count}${extname}`
   }
 }
 
