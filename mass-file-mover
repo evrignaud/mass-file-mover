@@ -41,19 +41,22 @@ function moveFiles (moveList, directory = '.') {
   const fileList = makeFileList(directory, moveList)
 
   const moveListLines = fs.readFileSync(moveList).toString().split('\n')
-  moveListLines.forEach(function (newPath) {
-    if(newPath) {
-      const dirname = path.dirname(newPath)
+  let toMove = 0
+  for (let newPath of moveListLines) {
+    if (newPath) {
+      const dirname = path.resolve(directory, path.dirname(newPath))
       mkdirRecurs(dirname)
 
       const filename = path.basename(newPath)
       if (fileList[filename]) {
         for (let sourceDir of fileList[filename]) {
           let oldPath = path.join(sourceDir, filename)
+          toMove++
           moveFile(oldPath, newPath, function (err) {
             if (err) {
               console.log(`ERR: Error moving from '${oldPath} to ${newPath}`, err.message)
             }
+            toMove--
           })
         }
       }
@@ -61,9 +64,17 @@ function moveFiles (moveList, directory = '.') {
         console.log(`ERR: File '${filename}' does not exit`)
       }
     }
-  })
+  }
 
-  cleanEmptyFoldersRecursively(directory)
+  function cleanDirectory () {
+    if (toMove === 0) {
+      cleanEmptyFoldersRecursively(directory)
+    } else {
+      setTimeout(cleanDirectory, 500)
+    }
+  }
+
+  setTimeout(cleanDirectory, 500)
 }
 
 function badUsage () {
@@ -99,8 +110,11 @@ function makeFileList(directory, moveList) {
 function mkdirRecurs (dirname, mode = '0777') {
   if (!fs.existsSync(dirname)) {
     dirname.split('/').forEach((dir, index, splits) => {
-      const parent = splits.slice(0, index).join('/')
-      const dirPath = path.resolve(parent, dir)
+      let parent = splits.slice(0, index).join('/')
+      if (!parent) {
+        parent = '/'
+      }
+      const dirPath = path.join(parent, dir)
       if (!fs.existsSync(dirPath)) {
         fs.mkdirSync(dirPath, mode)
       }
@@ -109,8 +123,9 @@ function mkdirRecurs (dirname, mode = '0777') {
 }
 
 function moveFile(oldPath, newPath, callback) {
-  if (oldPath !== newPath) {
-    console.log(`Move '${oldPath}' --> '${newPath}'`)
+  if (oldPath === newPath) {
+    callback()
+  } else {
     fs.rename(oldPath, newPath, function (err) {
       if (err) {
         if (err.code === 'EXDEV') {
@@ -119,8 +134,10 @@ function moveFile(oldPath, newPath, callback) {
           callback(err)
         }
         return
+      } else {
+        console.log(`Moved '${oldPath}' --> '${newPath}'`)
+        callback()
       }
-      callback()
     })
   }
 
@@ -132,6 +149,7 @@ function moveFile(oldPath, newPath, callback) {
     writeStream.on('error', callback)
 
     readStream.on('close', function () {
+      console.log(`Moved (using copy) '${oldPath}' --> '${newPath}'`)
       fs.unlink(oldPath, callback)
     })
 
