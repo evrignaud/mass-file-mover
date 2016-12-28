@@ -38,29 +38,53 @@ function moveFiles (moveList, directory = '.') {
     badUsage()
   }
 
-  const fileList = makeFileList(directory, moveList)
+  const { fileList, withoutExtensionList } = makeFileList(directory, moveList)
 
   const moveListLines = fs.readFileSync(moveList).toString().split('\n')
   let toMove = 0
+
+  function moveFromAllDirectories(filename, newPath) {
+    for (let sourceDir of fileList[filename]) {
+      let oldPath = path.join(sourceDir, filename)
+      toMove++
+      moveFile(oldPath, newPath, function (err) {
+        if (err) {
+          console.log(`ERR: Error moving from '${oldPath} to ${newPath}`, err.message)
+        }
+        toMove--
+      })
+    }
+  }
+
   for (let newPath of moveListLines) {
     if (newPath) {
       const dirname = path.resolve(directory, path.dirname(newPath))
       mkdirRecurs(dirname)
 
+      let managed = false
+
       const filename = path.basename(newPath)
       if (fileList[filename]) {
-        for (let sourceDir of fileList[filename]) {
-          let oldPath = path.join(sourceDir, filename)
-          toMove++
-          moveFile(oldPath, newPath, function (err) {
-            if (err) {
-              console.log(`ERR: Error moving from '${oldPath} to ${newPath}`, err.message)
+        moveFromAllDirectories(filename, newPath)
+        managed = true
+      }
+
+      if (withoutExtensionList[filename]) {
+        for (let withExtension of withoutExtensionList[filename]) {
+          if (withExtension !== filename) {
+            if (fileList[withExtension]) {
+              const ext = path.extname(withExtension)
+              moveFromAllDirectories(withExtension, newPath + ext)
+              managed = true
             }
-            toMove--
-          })
+            else {
+              console.log(`ERR: File '${withExtension}' does not exit`)
+            }
+          }
         }
       }
-      else {
+
+      if (!managed) {
         console.log(`ERR: File '${filename}' does not exit`)
       }
     }
@@ -86,6 +110,7 @@ function badUsage () {
 
 function makeFileList(directory, moveList) {
   const fileList = {}
+  const withoutExtensionList = {}
   const moveListFilename = path.basename(moveList)
 
   walkSync(directory, function (basedir, filename, stat) {
@@ -101,10 +126,17 @@ function makeFileList(directory, moveList) {
       else {
         fileList[filename] = [basedir]
       }
+
+      const withoutExtension = path.basename(filename, path.extname(filename))
+      if (withoutExtensionList[withoutExtension]) {
+        withoutExtensionList[withoutExtension].push(filename)
+      } else {
+        withoutExtensionList[withoutExtension] = [filename]
+      }
     }
   })
 
-  return fileList
+  return { fileList, withoutExtensionList }
 }
 
 function mkdirRecurs (dirname, mode = '0777') {
