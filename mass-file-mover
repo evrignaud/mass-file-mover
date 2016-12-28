@@ -1,0 +1,61 @@
+#!/usr/bin/env node
+
+const fs = require('fs')
+const path = require('path')
+
+console.log('ok ')
+
+// print process.argv
+process.argv.forEach(function (val, index, array) {
+  console.log(index + ': ' + val)
+})
+
+/**
+ * Synchronously list `dir` and all its descendents,
+ * calling `iterator` for each entry.
+ *
+ * @param {String} dir Path to the base directory of the listing.
+ * @param {Function} iterator Function that will be called
+ * for each entry in the listing, passing 4 arguments:
+ *   * `basedir`: Base directory of the entry (relative to `dir`).
+ *   * `file`: Name of the file
+ *   * `stat`: Result of calling `fs.stat`
+ *
+ */
+function walkSync (dir, iterator) {
+  var dirs = [dir]
+
+  while (dirs.length) {
+    var directory = dirs.shift()
+
+    try {
+      var files = fs.readdirSync(directory)
+    } catch (error) {
+      console.error('ERROR: Cannot read directory ' + directory, error.message)
+      continue
+    }
+
+    files.forEach(function (file) {
+      var f = path.join(directory, file)
+      var stat
+      try {
+        stat = fs.statSync(f)
+        if (stat && stat.isDirectory()) {
+          dirs.push(f)
+        }
+      } catch (error) {
+        console.error('ERROR: Cannot stat ' + f, error.message)
+      }
+
+      if (stat) {
+        iterator(directory, file, stat)
+      }
+    })
+  }
+}
+
+walkSync('/tmp', function (basedir, filename, stat) {
+  // var perm = stat.isDirectory() ? 0755 : 0644
+  // fs.chmodSync(path.join(basedir, filename), perm, next)
+  console.log(basedir, filename, stat.isDirectory())
+})

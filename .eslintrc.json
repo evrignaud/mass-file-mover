@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "semi": [2, "never"],            // http://eslint.org/docs/rules/semi
+    "space-before-function-paren": [2, "always"] // http://eslint.org/docs/rules/space-before-function-paren
+  }
+}
