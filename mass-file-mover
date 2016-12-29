@@ -25,12 +25,14 @@ switch (process.argv[2]) {
 function listDirectory (directory = '.') {
   const filenames = []
   walkSync(directory, function (basedir, filename, stat) {
-    if (!stat.isDirectory()) {
-      if (filename.startsWith(deleteMarker)) {
-        console.log(`WARN: File '${filename} have a name start with the deleteMarker. This file will be deleted my the move command`)
-      }
-      filenames.push(filename)
+    if (stat.isDirectory() || isDotFimDir(basedir)) {
+      return
     }
+
+    if (filename.startsWith(deleteMarker)) {
+      console.log(`WARN: File '${filename} have a name start with the deleteMarker. This file will be deleted my the move command`)
+    }
+    filenames.push(filename)
   })
 
   filenames.sort()
@@ -124,33 +126,39 @@ function badUsage () {
   process.exit(-1)
 }
 
+function isDotFimDir(directory) {
+  return directory.includes('.fim/') || directory.endsWith('.fim')
+}
+
 function makeFileList(directory, moveList) {
   const fileList = {}
   const withoutExtList = {}
   const moveListFilename = path.basename(moveList)
 
   walkSync(directory, function (basedir, filename, stat) {
-    if (!stat.isDirectory()) {
-      if (moveListFilename === filename && path.join(basedir, filename) === moveList) {
-        return
-      }
+    if (stat.isDirectory() || isDotFimDir(basedir)) {
+      return
+    }
 
-      if (fileList[filename]) {
-        console.log(`WARN: File '${filename} is duplicated`)
-        fileList[filename].push(basedir)
-      }
-      else {
-        fileList[filename] = [basedir]
-      }
+    if (moveListFilename === filename && path.join(basedir, filename) === moveList) {
+      return
+    }
 
-      const withoutExt = path.basename(filename, path.extname(filename))
-      if (withoutExtList[withoutExt]) {
-        if (!withoutExtList[withoutExt].includes(filename)) {
-          withoutExtList[withoutExt].push(filename)
-        }
-      } else {
-        withoutExtList[withoutExt] = [filename]
+    if (fileList[filename]) {
+      console.log(`WARN: File '${filename} is duplicated`)
+      fileList[filename].push(basedir)
+    }
+    else {
+      fileList[filename] = [basedir]
+    }
+
+    const withoutExt = path.basename(filename, path.extname(filename))
+    if (withoutExtList[withoutExt]) {
+      if (!withoutExtList[withoutExt].includes(filename)) {
+        withoutExtList[withoutExt].push(filename)
       }
+    } else {
+      withoutExtList[withoutExt] = [filename]
     }
   })
 
