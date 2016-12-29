@@ -13,7 +13,7 @@ switch (process.argv[2]) {
     listDirectory(process.argv[3])
     break
   case 'move':
-    moveFiles(process.argv[3], process.argv[4])
+    moveFiles(process.argv[3], process.argv[4], process.argv[5])
     break
   default:
     badUsage()
@@ -33,7 +33,7 @@ function listDirectory (directory = '.') {
   }
 }
 
-function moveFiles (moveList, directory = '.') {
+function moveFiles (moveList, directory = '.', baseDestinationDir) {
   if (!moveList) {
     badUsage()
   }
@@ -58,6 +58,10 @@ function moveFiles (moveList, directory = '.') {
 
   for (let newPath of moveListLines) {
     if (newPath) {
+      if(baseDestinationDir) {
+        newPath = path.join(baseDestinationDir, newPath)
+      }
+
       const dirname = path.resolve(directory, path.dirname(newPath))
       mkdirRecurs(dirname)
 
@@ -104,7 +108,7 @@ function moveFiles (moveList, directory = '.') {
 function badUsage () {
   console.error(`Invalid usage.
   mass-file-mover list <directory|.>
-  mass-file-mover move <moveList> <directory|.>`)
+  mass-file-mover move <moveList> <directory|.> <base destination dir>`)
   process.exit(-1)
 }
 
