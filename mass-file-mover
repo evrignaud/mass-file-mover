@@ -250,7 +250,11 @@ function mkdirRecurs (dirname, mode = '0777') {
       }
       const dirPath = path.join(parent, dir)
       if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, mode)
+        try {
+          fs.mkdirSync(dirPath, mode)
+        } catch (error) {
+          console.error(`ERR: Cannot create directory ${dirPath}`, error.message)
+        }
       }
     })
   }
