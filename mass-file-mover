@@ -4,6 +4,8 @@ const fs = require('fs')
 const path = require('path')
 const process = require('process')
 
+const movedFiles = []
+
 if(process.argv.length < 3) {
   badUsage()
 }
@@ -161,9 +163,10 @@ function mkdirRecurs (dirname, mode = '0777') {
 }
 
 function moveFile(oldPath, newPath, callback) {
-  if (oldPath === newPath) {
+  if (oldPath === newPath || movedFiles.includes(oldPath)) {
     callback()
   } else {
+    movedFiles.push(oldPath)
     newPath = findNonExistingFilename(newPath)
     fs.rename(oldPath, newPath, function (err) {
       if (err) {
