@@ -45,7 +45,11 @@ function listDirectory (listFullTree, directory = '.', fileList = 'fileList') {
     if(listFullTree) {
       filenames.push(path.join(basedir, filename))
     } else {
-      filenames.push(filename)
+      if (filenames.includes(filename)) {
+        console.log(`WARN: Filename '${filename} is duplicated`)
+      } else {
+        filenames.push(filename)
+      }
     }
   })
 
@@ -221,7 +225,7 @@ function makeFileList(directory, moveList) {
     }
 
     if (fileList[filename]) {
-      console.log(`WARN: File '${filename} is duplicated`)
+      console.log(`WARN: Filename '${filename} is duplicated`)
       fileList[filename].push(basedir)
     }
     else {
