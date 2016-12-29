@@ -58,11 +58,7 @@ function listDirectory (listFullTree, directory = '.', fileList = 'fileList') {
   writeStream.end()
 }
 
-function moveFiles (moveList, directory = '.', baseDestinationDir) {
-  if (!moveList) {
-    badUsage()
-  }
-
+function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) {
   const { fileList, withoutExtList } = makeFileList(directory, moveList)
 
   const moveListLines = fs.readFileSync(moveList).toString().split('\n')
