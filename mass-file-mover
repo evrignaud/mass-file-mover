@@ -144,18 +144,7 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
         continue
       }
 
-      if (newPath.startsWith((' '))) {
-        newPath = newPath.trim()
-        if(baseDestinationDir) {
-          newPath = path.join(baseDestinationDir, currentDirectory, newPath)
-        } else {
-          newPath = path.join(currentDirectory, newPath)
-        }
-      }
-
-      if(baseDestinationDir) {
-        newPath = path.join(baseDestinationDir, newPath)
-      }
+      newPath = generateFullPath(baseDestinationDir, currentDirectory, newPath)
 
       const dirname = path.resolve(directory, path.dirname(newPath))
       mkdirRecurs(dirname)
@@ -198,6 +187,16 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
   }
 
   setTimeout(cleanDirectory, 500)
+}
+
+function generateFullPath(baseDestinationDir = '.', currentDirectory, newPath) {
+  let fullPath = baseDestinationDir
+  if (newPath.startsWith((' '))) {
+    newPath = newPath.trim()
+    fullPath = path.join(fullPath, currentDirectory)
+  }
+  fullPath = path.join(fullPath, newPath)
+  return fullPath
 }
 
 function badUsage () {
