@@ -51,11 +51,52 @@ function listDirectory (listFullTree, directory = '.', fileList = 'fileList') {
 
   filenames.sort()
 
+  writeFileList(listFullTree, fileList, filenames)
+}
+
+function writeFileList(listFullTree, fileList, filenames) {
+  let currentDirectory = ''
+  let level = 0
   const writeStream = fs.createWriteStream(fileList)
-  for (let fileName of filenames) {
-    writeStream.write(fileName + '\n')
+  for (let filename of filenames) {
+    if (listFullTree) {
+      const directory = path.dirname(filename)
+
+      if(directory !== currentDirectory) {
+        let dirPart
+        if (directory.startsWith(currentDirectory)) {
+          dirPart = directory.substr(currentDirectory.length)
+          if (dirPart.startsWith('/')) {
+            dirPart = dirPart.substr(1)
+          }
+        } else {
+          dirPart = directory
+          level = 0
+        }
+
+        const parts = dirPart.split('/')
+        for (let part of parts) {
+          writeStream.write(buildLevel(level) + part + '/\n')
+          level++
+        }
+
+        currentDirectory = directory
+      }
+
+      writeStream.write(buildLevel(level) + path.basename(filename) + '\n')
+    } else {
+      writeStream.write(filename + '\n')
+    }
   }
   writeStream.end()
+}
+
+function buildLevel(level) {
+  let levelStr = ''
+  for(let index = 0; index < level; index++) {
+    levelStr += '  '
+  }
+  return levelStr
 }
 
 function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) {
