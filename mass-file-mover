@@ -13,7 +13,7 @@ if(process.argv.length < 3) {
 
 switch (process.argv[2]) {
   case 'list':
-    listDirectory(process.argv[3])
+    listDirectory(process.argv[3], process.argv[4])
     break
   case 'move':
     moveFiles(process.argv[3], process.argv[4], process.argv[5])
@@ -22,10 +22,16 @@ switch (process.argv[2]) {
     badUsage()
 }
 
-function listDirectory (directory = '.') {
+function listDirectory (directory = '.', fileList = 'fileList') {
   const filenames = []
+  const fileListFilename = path.basename(fileList)
+
   walkSync(directory, function (basedir, filename, stat) {
     if (stat.isDirectory() || isDotFimDir(basedir)) {
+      return
+    }
+
+    if (fileListFilename === filename && path.join(basedir, filename) === fileList) {
       return
     }
 
@@ -36,9 +42,12 @@ function listDirectory (directory = '.') {
   })
 
   filenames.sort()
+
+  const writeStream = fs.createWriteStream(fileList)
   for (let fileName of filenames) {
-    console.log(fileName)
+    writeStream.write(fileName + '\n')
   }
+  writeStream.end()
 }
 
 function moveFiles (moveList, directory = '.', baseDestinationDir) {
@@ -121,7 +130,7 @@ function moveFiles (moveList, directory = '.', baseDestinationDir) {
 
 function badUsage () {
   console.error(`Invalid usage.
-  mass-file-mover list <directory|.>
+  mass-file-mover list <directory|.> <fileList filename|fileList>
   mass-file-mover move <moveList> <directory|.> <base destination dir>`)
   process.exit(-1)
 }
