@@ -65,34 +65,36 @@ function writeFileList(listFullTree, fileList, filenames) {
   for (let filename of filenames) {
     if (listFullTree) {
       const directory = path.dirname(filename)
-
       if(directory !== currentDirectory) {
-        let dirPart
-        if (directory.startsWith(currentDirectory)) {
-          dirPart = directory.substr(currentDirectory.length)
-          if (dirPart.startsWith('/')) {
-            dirPart = dirPart.substr(1)
-          }
-        } else {
-          dirPart = directory
-          level = 0
-        }
-
-        const parts = dirPart.split('/')
+        const { newLevel, parts  } = findCommonParts(currentDirectory, directory)
+        level = newLevel
         for (let part of parts) {
           writeStream.write(buildLevel(level) + part + '/\n')
           level++
         }
-
         currentDirectory = directory
       }
-
       writeStream.write(buildLevel(level) + path.basename(filename) + '\n')
     } else {
       writeStream.write(filename + '\n')
     }
   }
   writeStream.end()
+}
+
+function findCommonParts(oldDirectory, newDirectory) {
+  const oldParts = oldDirectory.split('/')
+  const newParts = newDirectory.split('/')
+  let newLevel = 0
+
+  for(let index = 0; index < Math.min(oldParts.length, newParts.length); index++) {
+    if(oldParts[index] !== newParts[index]) {
+      break
+    }
+    newLevel++
+  }
+  let parts = newParts.slice(newLevel)
+  return { newLevel, parts }
 }
 
 function buildLevel(level) {
