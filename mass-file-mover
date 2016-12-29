@@ -38,7 +38,7 @@ function moveFiles (moveList, directory = '.') {
     badUsage()
   }
 
-  const { fileList, withoutExtensionList } = makeFileList(directory, moveList)
+  const { fileList, withoutExtList } = makeFileList(directory, moveList)
 
   const moveListLines = fs.readFileSync(moveList).toString().split('\n')
   let toMove = 0
@@ -69,8 +69,8 @@ function moveFiles (moveList, directory = '.') {
         managed = true
       }
 
-      if (withoutExtensionList[filename]) {
-        for (let withExtension of withoutExtensionList[filename]) {
+      if (withoutExtList[filename]) {
+        for (let withExtension of withoutExtList[filename]) {
           if (withExtension !== filename) {
             if (fileList[withExtension]) {
               const ext = path.extname(withExtension)
@@ -110,7 +110,7 @@ function badUsage () {
 
 function makeFileList(directory, moveList) {
   const fileList = {}
-  const withoutExtensionList = {}
+  const withoutExtList = {}
   const moveListFilename = path.basename(moveList)
 
   walkSync(directory, function (basedir, filename, stat) {
@@ -127,16 +127,18 @@ function makeFileList(directory, moveList) {
         fileList[filename] = [basedir]
       }
 
-      const withoutExtension = path.basename(filename, path.extname(filename))
-      if (withoutExtensionList[withoutExtension]) {
-        withoutExtensionList[withoutExtension].push(filename)
+      const withoutExt = path.basename(filename, path.extname(filename))
+      if (withoutExtList[withoutExt]) {
+        if (!withoutExtList[withoutExt].includes(filename)) {
+          withoutExtList[withoutExt].push(filename)
+        }
       } else {
-        withoutExtensionList[withoutExtension] = [filename]
+        withoutExtList[withoutExt] = [filename]
       }
     }
   })
 
-  return { fileList, withoutExtensionList }
+  return { fileList, withoutExtList }
 }
 
 function mkdirRecurs (dirname, mode = '0777') {
@@ -166,7 +168,6 @@ function moveFile(oldPath, newPath, callback) {
         } else {
           callback(err)
         }
-        return
       } else {
         console.log(`Moved '${oldPath}' --> '${newPath}'`)
         callback()
