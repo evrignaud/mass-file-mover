@@ -137,7 +137,7 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
       if(newPath.endsWith('/')) {
         // It's a directory name
         if (newPath.startsWith((' '))) {
-          currentDirectory = path.join(currentDirectory, newPath.trim())
+          currentDirectory = buildNewDirectory(currentDirectory, newPath)
         } else {
           currentDirectory = newPath
         }
@@ -187,6 +187,14 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
   }
 
   setTimeout(cleanDirectory, 500)
+}
+
+function buildNewDirectory(currentDirectory, newPath) {
+  const trimmedPath = newPath.trimLeft()
+  const newLevel = (newPath.length - trimmedPath.length) / 2
+  const parts = currentDirectory.split('/')
+  const newDirectory = path.join(parts.slice(0, newLevel).join('/'), trimmedPath)
+  return newDirectory
 }
 
 function generateFullPath(baseDestinationDir = '.', currentDirectory, newPath) {
