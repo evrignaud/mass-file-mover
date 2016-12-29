@@ -4,7 +4,7 @@ const fs = require('fs')
 const path = require('path')
 const process = require('process')
 
-const deleteMarker = '[DEL] '
+const deleteMarker = '[DEL]'
 const movedFiles = []
 
 if (process.argv.length < 3) {
@@ -137,7 +137,10 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
     if (newPath) {
       if (newPath.startsWith(deleteMarker)) {
         // File will be deleted
-        newPath = newPath.substr(deleteMarker.length)
+        newPath = newPath.substr(deleteMarker.length).trim()
+        if (currentDirectory) {
+          newPath = path.join(currentDirectory, newPath)
+        }
         deleteFile(newPath)
         continue
       }
