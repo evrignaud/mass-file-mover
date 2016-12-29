@@ -13,7 +13,10 @@ if(process.argv.length < 3) {
 
 switch (process.argv[2]) {
   case 'list':
-    listDirectory(process.argv[3], process.argv[4])
+    listDirectory(false, process.argv[3], process.argv[4])
+    break
+  case 'list-tree':
+    listDirectory(true, process.argv[3], process.argv[4])
     break
   case 'move':
     moveFiles(process.argv[3], process.argv[4], process.argv[5])
@@ -22,7 +25,7 @@ switch (process.argv[2]) {
     badUsage()
 }
 
-function listDirectory (directory = '.', fileList = 'fileList') {
+function listDirectory (listFullTree, directory = '.', fileList = 'fileList') {
   const filenames = []
   const fileListFilename = path.basename(fileList)
 
@@ -38,7 +41,12 @@ function listDirectory (directory = '.', fileList = 'fileList') {
     if (filename.startsWith(deleteMarker)) {
       console.log(`WARN: File '${filename} have a name start with the deleteMarker. This file will be deleted my the move command`)
     }
-    filenames.push(filename)
+
+    if(listFullTree) {
+      filenames.push(path.join(basedir, filename))
+    } else {
+      filenames.push(filename)
+    }
   })
 
   filenames.sort()
@@ -131,6 +139,7 @@ function moveFiles (moveList, directory = '.', baseDestinationDir) {
 function badUsage () {
   console.error(`Invalid usage.
   mass-file-mover list <directory|.> <fileList filename|fileList>
+  mass-file-mover list-tree <directory|.> <fileList filename|fileList>
   mass-file-mover move <moveList> <directory|.> <base destination dir>`)
   process.exit(-1)
 }
