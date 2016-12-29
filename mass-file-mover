@@ -7,7 +7,7 @@ const process = require('process')
 const deleteMarker = '[DEL] '
 const movedFiles = []
 
-if(process.argv.length < 3) {
+if (process.argv.length < 3) {
   badUsage()
 }
 
@@ -39,14 +39,14 @@ function listDirectory (listFullTree, directory = '.', fileList = 'fileList') {
     }
 
     if (filename.startsWith(deleteMarker)) {
-      console.log(`WARN: File '${filename} have a name start with the deleteMarker. This file will be deleted my the move command`)
+      console.log(`WARN: File '${filename} have a name starting with the deleteMarker. This file will be deleted my the move command`)
     }
 
-    if(listFullTree) {
+    if (listFullTree) {
       filenames.push(path.join(basedir, filename))
     } else {
       if (filenames.includes(filename)) {
-        console.log(`WARN: Filename '${filename} is duplicated`)
+        console.log(`WARN: File '${filename} found several times`)
       } else {
         filenames.push(filename)
       }
@@ -55,40 +55,48 @@ function listDirectory (listFullTree, directory = '.', fileList = 'fileList') {
 
   filenames.sort()
 
-  writeFileList(listFullTree, fileList, filenames)
+  if (listFullTree) {
+    writeFullTree(fileList, filenames)
+  } else {
+    writeFileList(fileList, filenames)
+  }
 }
 
-function writeFileList(listFullTree, fileList, filenames) {
-  let currentDirectory = ''
-  let level = 0
+function writeFileList (fileList, filenames) {
   const writeStream = fs.createWriteStream(fileList)
   for (let filename of filenames) {
-    if (listFullTree) {
-      const directory = path.dirname(filename)
-      if(directory !== currentDirectory) {
-        const { newLevel, parts  } = findCommonParts(currentDirectory, directory)
-        level = newLevel
-        for (let part of parts) {
-          writeStream.write(buildLevel(level) + part + '/\n')
-          level++
-        }
-        currentDirectory = directory
-      }
-      writeStream.write(buildLevel(level) + path.basename(filename) + '\n')
-    } else {
-      writeStream.write(filename + '\n')
-    }
+    writeStream.write(filename + '\n')
   }
   writeStream.end()
 }
 
-function findCommonParts(oldDirectory, newDirectory) {
+function writeFullTree (fileList, filenames) {
+  let currentDirectory = ''
+  let level = 0
+  const writeStream = fs.createWriteStream(fileList)
+  for (let filename of filenames) {
+    const directory = path.dirname(filename)
+    if (directory !== currentDirectory) {
+      const { newLevel, parts } = findNewParts(currentDirectory, directory)
+      level = newLevel
+      for (let part of parts) {
+        writeStream.write(buildLevel(level) + part + '/\n')
+        level++
+      }
+      currentDirectory = directory
+    }
+    writeStream.write(buildLevel(level) + path.basename(filename) + '\n')
+  }
+  writeStream.end()
+}
+
+function findNewParts (oldDirectory, newDirectory) {
   const oldParts = oldDirectory.split('/')
   const newParts = newDirectory.split('/')
   let newLevel = 0
 
-  for(let index = 0; index < Math.min(oldParts.length, newParts.length); index++) {
-    if(oldParts[index] !== newParts[index]) {
+  for (let index = 0; index < Math.min(oldParts.length, newParts.length); index++) {
+    if (oldParts[index] !== newParts[index]) {
       break
     }
     newLevel++
@@ -97,9 +105,9 @@ function findCommonParts(oldDirectory, newDirectory) {
   return { newLevel, parts }
 }
 
-function buildLevel(level) {
+function buildLevel (level) {
   let levelStr = ''
-  for(let index = 0; index < level; index++) {
+  for (let index = 0; index < level; index++) {
     levelStr += '  '
   }
   return levelStr
@@ -112,7 +120,7 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
   let toMove = 0
   let currentDirectory = ''
 
-  function moveFromAllDirectories(filename, newPath) {
+  function moveFromAllDirectories (filename, newPath) {
     for (let sourceDir of fileList[filename]) {
       let oldPath = path.join(sourceDir, filename)
       toMove++
@@ -127,14 +135,14 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
 
   for (let newPath of moveListLines) {
     if (newPath) {
-      if(newPath.startsWith(deleteMarker)) {
+      if (newPath.startsWith(deleteMarker)) {
         // File will be deleted
         newPath = newPath.substr(deleteMarker.length)
         deleteFile(newPath)
         continue
       }
 
-      if(newPath.endsWith('/')) {
+      if (newPath.endsWith('/')) {
         // It's a directory name
         if (newPath.startsWith((' '))) {
           currentDirectory = buildNewDirectory(currentDirectory, newPath)
@@ -189,7 +197,7 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
   setTimeout(cleanDirectory, 500)
 }
 
-function buildNewDirectory(currentDirectory, newPath) {
+function buildNewDirectory (currentDirectory, newPath) {
   const trimmedPath = newPath.trimLeft()
   const newLevel = (newPath.length - trimmedPath.length) / 2
   const parts = currentDirectory.split('/')
@@ -197,7 +205,7 @@ function buildNewDirectory(currentDirectory, newPath) {
   return newDirectory
 }
 
-function generateFullPath(baseDestinationDir = '.', currentDirectory, newPath) {
+function generateFullPath (baseDestinationDir = '.', currentDirectory, newPath) {
   let fullPath = baseDestinationDir
   if (newPath.startsWith((' '))) {
     newPath = newPath.trim()
@@ -215,11 +223,11 @@ function badUsage () {
   process.exit(-1)
 }
 
-function isDotFimDir(directory) {
+function isDotFimDir (directory) {
   return directory.includes('.fim/') || directory.endsWith('.fim')
 }
 
-function makeFileList(directory, moveList) {
+function makeFileList (directory, moveList) {
   const fileList = {}
   const withoutExtList = {}
   const moveListFilename = path.basename(moveList)
@@ -234,7 +242,7 @@ function makeFileList(directory, moveList) {
     }
 
     if (fileList[filename]) {
-      console.log(`WARN: Filename '${filename} is duplicated`)
+      console.log(`WARN: File '${filename} found several times`)
       fileList[filename].push(basedir)
     }
     else {
@@ -273,7 +281,7 @@ function mkdirRecurs (dirname, mode = '0777') {
   }
 }
 
-function deleteFile(filename) {
+function deleteFile (filename) {
   try {
     fs.unlinkSync(filename)
     console.log(`Removed file '${filename}'`)
@@ -282,7 +290,7 @@ function deleteFile(filename) {
   }
 }
 
-function moveFile(oldPath, newPath, callback) {
+function moveFile (oldPath, newPath, callback) {
   if (oldPath === newPath || movedFiles.includes(oldPath)) {
     callback()
   } else {
@@ -291,7 +299,7 @@ function moveFile(oldPath, newPath, callback) {
     fs.rename(oldPath, newPath, function (err) {
       if (err) {
         if (err.code === 'EXDEV') {
-          copyFile()
+          moveFileUsingCopy()
         } else {
           callback(err)
         }
@@ -302,7 +310,7 @@ function moveFile(oldPath, newPath, callback) {
     })
   }
 
-  function copyFile() {
+  function moveFileUsingCopy () {
     const readStream = fs.createReadStream(oldPath)
     const writeStream = fs.createWriteStream(newPath)
 
@@ -318,7 +326,7 @@ function moveFile(oldPath, newPath, callback) {
   }
 }
 
-function findNonExistingFilename(fullPath) {
+function findNonExistingFilename (fullPath) {
   let count = 0
   let result = fullPath
   while (true) {
@@ -386,7 +394,7 @@ function cleanEmptyFoldersRecursively (folder) {
   }
   let files = fs.readdirSync(folder)
   if (files.length > 0) {
-    files.forEach(function(file) {
+    files.forEach(function (file) {
       const fullPath = path.join(folder, file)
       cleanEmptyFoldersRecursively(fullPath)
     })
