@@ -104,6 +104,7 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
 
   const moveListLines = fs.readFileSync(moveList).toString().split('\n')
   let toMove = 0
+  let currentDirectory = ''
 
   function moveFromAllDirectories(filename, newPath) {
     for (let sourceDir of fileList[filename]) {
@@ -121,9 +122,29 @@ function moveFiles (moveList = 'fileList', directory = '.', baseDestinationDir) 
   for (let newPath of moveListLines) {
     if (newPath) {
       if(newPath.startsWith(deleteMarker)) {
+        // File will be deleted
         newPath = newPath.substr(deleteMarker.length)
         deleteFile(newPath)
         continue
+      }
+
+      if(newPath.endsWith('/')) {
+        // It's a directory name
+        if (newPath.startsWith((' '))) {
+          currentDirectory = path.join(currentDirectory, newPath.trim())
+        } else {
+          currentDirectory = newPath
+        }
+        continue
+      }
+
+      if (newPath.startsWith((' '))) {
+        newPath = newPath.trim()
+        if(baseDestinationDir) {
+          newPath = path.join(baseDestinationDir, currentDirectory, newPath)
+        } else {
+          newPath = path.join(currentDirectory, newPath)
+        }
       }
 
       if(baseDestinationDir) {
