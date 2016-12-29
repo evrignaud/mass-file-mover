@@ -4,6 +4,7 @@ const fs = require('fs')
 const path = require('path')
 const process = require('process')
 
+const deleteMarker = '[DEL] '
 const movedFiles = []
 
 if(process.argv.length < 3) {
@@ -25,6 +26,9 @@ function listDirectory (directory = '.') {
   const filenames = []
   walkSync(directory, function (basedir, filename, stat) {
     if (!stat.isDirectory()) {
+      if (filename.startsWith(deleteMarker)) {
+        console.log(`WARN: File '${filename} have a name start with the deleteMarker. This file will be deleted my the move command`)
+      }
       filenames.push(filename)
     }
   })
@@ -60,6 +64,12 @@ function moveFiles (moveList, directory = '.', baseDestinationDir) {
 
   for (let newPath of moveListLines) {
     if (newPath) {
+      if(newPath.startsWith(deleteMarker)) {
+        newPath = newPath.substr(deleteMarker.length)
+        deleteFile(newPath)
+        continue
+      }
+
       if(baseDestinationDir) {
         newPath = path.join(baseDestinationDir, newPath)
       }
@@ -159,6 +169,15 @@ function mkdirRecurs (dirname, mode = '0777') {
         fs.mkdirSync(dirPath, mode)
       }
     })
+  }
+}
+
+function deleteFile(filename) {
+  try {
+    fs.unlinkSync(filename)
+    console.log(`Removed file '${filename}'`)
+  } catch (error) {
+    console.error(`ERR: Cannot remove file ${filename}`, error.message)
   }
 }
 
@@ -277,7 +296,7 @@ function cleanEmptyFoldersRecursively (folder) {
   }
 
   if (files.length == 0) {
-    console.log(`Removing '${folder}'`)
     fs.rmdirSync(folder)
+    console.log(`Removed folder '${folder}'`)
   }
 }
