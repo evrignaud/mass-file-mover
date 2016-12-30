@@ -7,16 +7,25 @@ const process = require('process')
 const deleteMarker = '[DEL]'
 const movedFiles = []
 
+const LIST_TYPES = {
+  files: 'files',
+  flat_tree: 'flat-tree',
+  tree: 'tree'
+}
+
 if (process.argv.length < 3) {
   badUsage()
 }
 
 switch (process.argv[2]) {
-  case 'list':
-    listDirectory(false, process.argv[3], process.argv[4])
+  case 'list-files':
+    listDirectory(LIST_TYPES.files, process.argv[3], process.argv[4])
+    break
+  case 'list-flat-tree':
+    listDirectory(LIST_TYPES.flat_tree, process.argv[3], process.argv[4])
     break
   case 'list-tree':
-    listDirectory(true, process.argv[3], process.argv[4])
+    listDirectory(LIST_TYPES.tree, process.argv[3], process.argv[4])
     break
   case 'move':
     moveFiles(process.argv[3], process.argv[4], process.argv[5])
@@ -25,7 +34,16 @@ switch (process.argv[2]) {
     badUsage()
 }
 
-function listDirectory (listFullTree, directory = '.', fileList = 'fileList') {
+function badUsage () {
+  console.error(`Invalid usage.
+  mass-file-mover list-files <directory|.> <fileList filename|fileList>
+  mass-file-mover list-flat-tree <directory|.> <fileList filename|fileList>
+  mass-file-mover list-tree <directory|.> <fileList filename|fileList>
+  mass-file-mover move <moveList> <directory|.> <base destination dir>`)
+  process.exit(-1)
+}
+
+function listDirectory (listType, directory = '.', fileList = 'fileList') {
   const filenames = []
   const fileListFilename = path.basename(fileList)
 
@@ -42,7 +60,7 @@ function listDirectory (listFullTree, directory = '.', fileList = 'fileList') {
       console.log(`WARN: File '${filename} have a name starting with the deleteMarker. This file will be deleted my the move command`)
     }
 
-    if (listFullTree) {
+    if (listType) {
       filenames.push(path.join(basedir, filename))
     } else {
       if (filenames.includes(filename)) {
@@ -55,10 +73,10 @@ function listDirectory (listFullTree, directory = '.', fileList = 'fileList') {
 
   const sortedFilenames = sortPaths(filenames)
 
-  if (listFullTree) {
-    writeFullTree(fileList, sortedFilenames)
-  } else {
+  if (listType === LIST_TYPES.files) {
     writeFileList(fileList, sortedFilenames)
+  } else {
+    writeFullTree(listType, fileList, sortedFilenames)
   }
 }
 
@@ -70,21 +88,26 @@ function writeFileList (fileList, filenames) {
   writeStream.end()
 }
 
-function writeFullTree (fileList, filenames) {
+function writeFullTree (listType, fileList, filenames) {
   let currentDirectory = ''
-  let level = 0
+  let level = (listType == LIST_TYPES.flat_tree) ? 1 : 0
   const writeStream = fs.createWriteStream(fileList)
   for (let filename of filenames) {
     const directory = path.dirname(filename)
     if (directory !== currentDirectory) {
-      const { newLevel, parts } = findNewParts(currentDirectory, directory)
-      level = newLevel
-      for (let part of parts) {
-        writeStream.write(buildLevel(level) + part + '/\n')
-        level++
+      if (listType == LIST_TYPES.flat_tree) {
+        writeStream.write(directory + '/\n')
+      } else {
+        const { newLevel, parts } = findNewParts(currentDirectory, directory)
+        level = newLevel
+        for (let part of parts) {
+          writeStream.write(buildLevel(level) + part + '/\n')
+          level++
+        }
       }
       currentDirectory = directory
     }
+
     writeStream.write(buildLevel(level) + path.basename(filename) + '\n')
   }
   writeStream.end()
@@ -216,14 +239,6 @@ function generateFullPath (baseDestinationDir = '.', currentDirectory, newPath) 
   }
   fullPath = path.join(fullPath, newPath)
   return fullPath
-}
-
-function badUsage () {
-  console.error(`Invalid usage.
-  mass-file-mover list <directory|.> <fileList filename|fileList>
-  mass-file-mover list-tree <directory|.> <fileList filename|fileList>
-  mass-file-mover move <moveList> <directory|.> <base destination dir>`)
-  process.exit(-1)
 }
 
 function isDotFimDir (directory) {
