@@ -424,7 +424,7 @@ function cleanEmptyFoldersRecursively (folder) {
 
   if (files.length == 0) {
     fs.rmdirSync(folder)
-    console.log(`Removed folder '${folder}'`)
+    console.log(`Removed empty folder '${folder}'`)
   }
 }
 
