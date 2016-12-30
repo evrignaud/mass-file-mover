@@ -1,0 +1,10 @@
+{
+  "name": "mass-file-mover",
+  "version": "1.0.0",
+  "description": "Command line tool that move a complete tree of files",
+  "main": "index.js",
+  "scripts": {
+  },
+  "author": "Etienne Vrignaud",
+  "license": ""
+}
