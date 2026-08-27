@@ -41,11 +41,15 @@ Examples:
     $ mass-file-mover move plan.txt photos sorted --copy
 
   In a listing, a line ending with '/' opens a directory and the indented
-  lines below it are its contents. Rename a line to rename the file, move it
-  under another directory to move the file, and prefix it with '${DELETE_MARKER}' to
-  delete it instead. A name written without an extension moves every file
-  sharing that stem, so 'IMG_0042' carries both the .jpg and the .raw.
-  Lines starting with '#' are ignored.
+  lines below it are its contents. Move a line under a different directory to
+  move the file, or prefix it with '${DELETE_MARKER}' to delete it instead. A name
+  written without an extension carries every file sharing that stem, so
+  'IMG_0042' takes both the .jpg and the .raw. Lines starting with '#' are
+  ignored.
+
+  Entries are matched to files by name, so editing a name does not rename the
+  file: it asks for one that is not there. A listing decides which directory a
+  file ends up in, not what it is called.
 `
 
 /**
