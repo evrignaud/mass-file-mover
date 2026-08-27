@@ -1,6 +1,13 @@
 export { DEFAULT_CONCURRENCY, mapWithConcurrency } from './concurrency.js'
-export { DELETE_MARKER, INDENT_WIDTH, LIST_TYPES } from './constants.js'
+export {
+  CONFLICT_STRATEGIES,
+  DELETE_MARKER,
+  INDENT_WIDTH,
+  LIST_TYPES,
+  TRANSFER_MODES
+} from './constants.js'
 export { createIgnoreMatcher, DEFAULT_IGNORES, expandPattern } from './ignore.js'
+export { JOURNAL_VERSION, readJournal, undoJournal, writeJournal } from './journal.js'
 export { buildFullTree, collectFiles, listDirectory } from './list.js'
 export { createLogger, LOG_LEVELS, silentLogger } from './logger.js'
 export {
@@ -12,7 +19,9 @@ export {
   moveFile,
   moveFiles,
   parseMoveList,
-  planOperations
+  planOperations,
+  resolveTarget,
+  transferFile
 } from './move.js'
 export {
   buildLevel,
@@ -29,4 +38,4 @@ export {
 } from './paths.js'
 export { splitLines, stripBom } from './text.js'
 export { walkSync } from './walk.js'
-export { buildProgram, reportSummary, run } from './cli.js'
+export { buildProgram, reportSummary, reportUndoSummary, run } from './cli.js'

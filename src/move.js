@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 
 import { DEFAULT_CONCURRENCY, mapWithConcurrency } from './concurrency.js'
-import { DELETE_MARKER } from './constants.js'
+import { CONFLICT_STRATEGIES, DELETE_MARKER, TRANSFER_MODES } from './constants.js'
 import { createIgnoreMatcher } from './ignore.js'
 import { silentLogger } from './logger.js'
 import {
@@ -143,12 +143,16 @@ export function parseMoveList (content) {
  * @param {Map<string, string[]>} params.withoutExtList
  * @param {string} params.directory
  * @param {string} params.baseDestinationDir
+ * @param {string} [params.mode] One of {@link TRANSFER_MODES}.
+ * @param {string} [params.onConflict] One of {@link CONFLICT_STRATEGIES}.
  * @param {object} [params.logger]
  * @returns {{
- *   moves: Array<{ oldPath: string, target: string }>,
+ *   moves: Array<{ oldPath: string, target: string, overwrite: boolean }>,
  *   deletes: string[],
  *   directories: string[],
  *   unchanged: string[],
+ *   skipped: string[],
+ *   conflicts: string[],
  *   missing: string[]
  * }}
  */
@@ -158,12 +162,16 @@ export function planOperations ({
   withoutExtList,
   directory,
   baseDestinationDir,
+  mode = TRANSFER_MODES.move,
+  onConflict = CONFLICT_STRATEGIES.rename,
   logger = silentLogger
 }) {
   const moves = []
   const deletes = []
   const directories = []
   const unchanged = []
+  const skipped = []
+  const conflicts = []
   const missing = []
 
   const claimedSources = new Set()
@@ -177,23 +185,53 @@ export function planOperations ({
       }
       claimedSources.add(oldPath)
 
-      const target = findNonExistingFilename(desiredTarget, { reserved: reservedTargets })
-
-      if (path.resolve(oldPath) === path.resolve(target)) {
+      if (path.resolve(oldPath) === path.resolve(desiredTarget)) {
         // Already where the list wants it.
         unchanged.push(oldPath)
         logger.debug(`Unchanged '${oldPath}'`)
         continue
       }
 
-      reservedTargets.add(path.resolve(target))
-      moves.push({ oldPath, target })
+      const resolution = resolveTarget(desiredTarget, {
+        reserved: reservedTargets,
+        onConflict
+      })
+
+      if (resolution.conflict) {
+        conflicts.push(desiredTarget)
+      }
+
+      if (resolution.action === 'skip') {
+        skipped.push(oldPath)
+        logger.warn(`Skipped '${oldPath}': '${desiredTarget}' already exists`)
+        continue
+      }
+
+      if (resolution.action === 'fail') {
+        missing.push(oldPath)
+        logger.error(`Cannot place '${oldPath}': '${desiredTarget}' already exists`)
+        continue
+      }
+
+      reservedTargets.add(path.resolve(resolution.target))
+      moves.push({
+        oldPath,
+        target: resolution.target,
+        overwrite: resolution.action === 'overwrite'
+      })
     }
   }
 
   for (const operation of operations) {
     if (operation.type === 'delete') {
       const { target } = operation
+
+      // Copying is meant to leave the source tree alone, so a delete marker
+      // just means "leave this one out" rather than "remove it".
+      if (mode === TRANSFER_MODES.copy) {
+        logger.debug(`Not copying '${target}' (marked ${DELETE_MARKER})`)
+        continue
+      }
 
       if (target.includes('/') || target.includes(path.sep)) {
         deletes.push(path.join(directory, ...target.split(/[/\\]/)))
@@ -245,28 +283,62 @@ export function planOperations ({
     }
   }
 
-  return { moves, deletes, directories, unchanged, missing }
+  return { moves, deletes, directories, unchanged, skipped, conflicts, missing }
 }
 
 /**
- * Applies a move list: every entry is moved to its new location, entries
- * flagged with the delete marker are removed, and source directories left
- * empty afterwards are pruned.
+ * Decides where a file goes when something already occupies its destination.
+ *
+ * @param {string} desiredTarget
+ * @param {object} options
+ * @param {Set<string>} [options.reserved] Targets already claimed by this plan.
+ * @param {string} [options.onConflict] One of {@link CONFLICT_STRATEGIES}.
+ * @returns {{ target: string, conflict: boolean, action: 'create'|'rename'|'overwrite'|'skip'|'fail' }}
+ */
+export function resolveTarget (desiredTarget, { reserved, onConflict = CONFLICT_STRATEGIES.rename } = {}) {
+  const taken = fs.existsSync(desiredTarget) || Boolean(reserved?.has(path.resolve(desiredTarget)))
+
+  if (!taken) {
+    return { target: desiredTarget, conflict: false, action: 'create' }
+  }
+
+  switch (onConflict) {
+    case CONFLICT_STRATEGIES.skip:
+      return { target: desiredTarget, conflict: true, action: 'skip' }
+    case CONFLICT_STRATEGIES.overwrite:
+      return { target: desiredTarget, conflict: true, action: 'overwrite' }
+    case CONFLICT_STRATEGIES.fail:
+      return { target: desiredTarget, conflict: true, action: 'fail' }
+    case CONFLICT_STRATEGIES.rename:
+      return {
+        target: findNonExistingFilename(desiredTarget, { reserved }),
+        conflict: true,
+        action: 'rename'
+      }
+    default:
+      throw new Error(`Unknown conflict strategy '${onConflict}'`)
+  }
+}
+
+/**
+ * Applies a listing: every entry is moved, or copied, to its new location,
+ * entries flagged with the delete marker are removed, and source directories
+ * left empty afterwards are pruned.
  *
  * @param {string} [moveList]
  * @param {string} [directory]
  * @param {string} [baseDestinationDir]
  * @param {object} [options]
  * @param {boolean} [options.dryRun] Report the plan without applying it.
+ * @param {string} [options.mode] One of {@link TRANSFER_MODES}.
+ * @param {string} [options.onConflict] One of {@link CONFLICT_STRATEGIES}.
  * @param {boolean} [options.prune] Remove source directories left empty.
  * @param {number} [options.concurrency]
  * @param {string[]} [options.ignore]
  * @param {boolean} [options.defaultIgnores]
  * @param {object} [options.logger]
- * @returns {Promise<{
- *   moved: number, copied: number, deleted: number,
- *   unchanged: number, failed: number, missing: number, dryRun: boolean
- * }>}
+ * @returns {Promise<object>} Summary of the run, including the journal entries
+ *   describing what was actually carried out.
  */
 export async function moveFiles (
   moveList = 'fileList',
@@ -276,12 +348,25 @@ export async function moveFiles (
 ) {
   const {
     dryRun = false,
-    prune = true,
+    mode = TRANSFER_MODES.move,
+    onConflict = CONFLICT_STRATEGIES.rename,
     concurrency = DEFAULT_CONCURRENCY,
     ignore = [],
     defaultIgnores = true,
     logger = silentLogger
   } = options
+
+  // Copying is non-destructive by definition, so it never prunes the tree it
+  // read from.
+  const prune = mode === TRANSFER_MODES.copy ? false : options.prune !== false
+
+  if (!Object.values(TRANSFER_MODES).includes(mode)) {
+    throw new Error(`Unknown transfer mode '${mode}'`)
+  }
+
+  if (!Object.values(CONFLICT_STRATEGIES).includes(onConflict)) {
+    throw new Error(`Unknown conflict strategy '${onConflict}'. Expected one of ${Object.values(CONFLICT_STRATEGIES).join(', ')}`)
+  }
 
   if (!fs.existsSync(moveList)) {
     throw new Error(`Move list '${moveList}' does not exist`)
@@ -308,27 +393,39 @@ export async function moveFiles (
     withoutExtList,
     directory,
     baseDestinationDir,
+    mode,
+    onConflict,
     logger
   })
 
+  const verb = mode === TRANSFER_MODES.copy ? 'Copied' : 'Moved'
+  const journalEntries = []
+
   const summary = {
+    mode,
+    dryRun,
     moved: 0,
     copied: 0,
+    crossDevice: 0,
     deleted: 0,
     unchanged: plan.unchanged.length,
+    skipped: plan.skipped.length,
+    conflicts: plan.conflicts.length,
     failed: 0,
     missing: plan.missing.length,
-    dryRun
+    operations: journalEntries
   }
+
+  const counter = mode === TRANSFER_MODES.copy ? 'copied' : 'moved'
 
   if (dryRun) {
     for (const filename of plan.deletes) {
       logger.info(`Would remove '${filename}'`)
       summary.deleted++
     }
-    for (const { oldPath, target } of plan.moves) {
-      logger.info(`Would move '${oldPath}' --> '${target}'`)
-      summary.moved++
+    for (const { oldPath, target, overwrite } of plan.moves) {
+      logger.info(`Would ${mode} '${oldPath}' --> '${target}'${overwrite ? ' (overwriting)' : ''}`)
+      summary[counter]++
     }
     return summary
   }
@@ -342,22 +439,32 @@ export async function moveFiles (
   for (const filename of plan.deletes) {
     if (await deleteFile(filename, logger)) {
       summary.deleted++
+      journalEntries.push({ type: 'delete', path: filename })
     } else {
       summary.failed++
     }
   }
 
-  await mapWithConcurrency(plan.moves, concurrency, async ({ oldPath, target }) => {
+  await mapWithConcurrency(plan.moves, concurrency, async ({ oldPath, target, overwrite }) => {
     try {
-      const { copied } = await moveFile(oldPath, target)
-      summary.moved++
-      if (copied) {
-        summary.copied++
+      const { crossDevice } = await transferFile(oldPath, target, { mode, overwrite })
+
+      summary[counter]++
+      if (crossDevice) {
+        summary.crossDevice++
       }
-      logger.info(`Moved${copied ? ' (using copy)' : ''} '${oldPath}' --> '${target}'`)
+
+      journalEntries.push({
+        type: mode,
+        from: oldPath,
+        to: target,
+        ...(overwrite ? { overwritten: true } : {})
+      })
+
+      logger.info(`${verb}${crossDevice ? ' (across filesystems)' : ''} '${oldPath}' --> '${target}'`)
     } catch (error) {
       summary.failed++
-      logger.error(`Cannot move '${oldPath}' to '${target}': ${error.message}`)
+      logger.error(`Cannot ${mode} '${oldPath}' to '${target}': ${error.message}`)
     }
   })
 
@@ -404,17 +511,35 @@ export async function deleteFile (filename, logger = silentLogger) {
 }
 
 /**
- * Moves one file, falling back to a copy when source and destination sit on
- * different filesystems.
+ * Puts one file at its new location, either moving or copying it.
+ *
+ * A move is a rename, which falls back to copy-then-delete when source and
+ * destination sit on different filesystems.
  *
  * @param {string} oldPath
  * @param {string} newPath
- * @returns {Promise<{ path: string, copied: boolean }>}
+ * @param {object} [options]
+ * @param {string} [options.mode] One of {@link TRANSFER_MODES}.
+ * @param {boolean} [options.overwrite] Allow replacing an existing file.
+ * @returns {Promise<{ path: string, crossDevice: boolean }>}
  */
-export async function moveFile (oldPath, newPath) {
+export async function transferFile (
+  oldPath,
+  newPath,
+  { mode = TRANSFER_MODES.move, overwrite = false } = {}
+) {
+  // Without an explicit overwrite the copy is exclusive, so a file that
+  // appeared since the plan was built is never clobbered.
+  const copyFlags = overwrite ? 0 : fs.constants.COPYFILE_EXCL
+
+  if (mode === TRANSFER_MODES.copy) {
+    await fsp.copyFile(oldPath, newPath, copyFlags)
+    return { path: newPath, crossDevice: false }
+  }
+
   try {
     await fsp.rename(oldPath, newPath)
-    return { path: newPath, copied: false }
+    return { path: newPath, crossDevice: false }
   } catch (error) {
     if (error.code !== 'EXDEV') {
       throw error
@@ -422,12 +547,23 @@ export async function moveFile (oldPath, newPath) {
   }
 
   // Source and destination are on different filesystems, so rename cannot
-  // work: copy the content across, then drop the original. The copy is
-  // exclusive so a file that appeared in the meantime is never clobbered.
-  await fsp.copyFile(oldPath, newPath, fs.constants.COPYFILE_EXCL)
+  // work: copy the content across, then drop the original.
+  await fsp.copyFile(oldPath, newPath, copyFlags)
   await fsp.unlink(oldPath)
 
-  return { path: newPath, copied: true }
+  return { path: newPath, crossDevice: true }
+}
+
+/**
+ * Moves one file. A thin wrapper over {@link transferFile}.
+ *
+ * @param {string} oldPath
+ * @param {string} newPath
+ * @param {{ overwrite?: boolean }} [options]
+ * @returns {Promise<{ path: string, crossDevice: boolean }>}
+ */
+export async function moveFile (oldPath, newPath, options = {}) {
+  return transferFile(oldPath, newPath, { ...options, mode: TRANSFER_MODES.move })
 }
 
 /**

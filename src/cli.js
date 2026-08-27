@@ -4,9 +4,15 @@ import process from 'node:process'
 import { Command, Option } from 'commander'
 
 import { DEFAULT_CONCURRENCY } from './concurrency.js'
-import { DELETE_MARKER, LIST_TYPES } from './constants.js'
+import {
+  CONFLICT_STRATEGIES,
+  DELETE_MARKER,
+  LIST_TYPES,
+  TRANSFER_MODES
+} from './constants.js'
 import { DEFAULT_IGNORES } from './ignore.js'
-import { listDirectory } from './list.js'
+import { readJournal, undoJournal, writeJournal } from './journal.js'
+import { collectFiles, listDirectory } from './list.js'
 import { createLogger } from './logger.js'
 import { moveFiles } from './move.js'
 
@@ -15,6 +21,7 @@ const { version } = JSON.parse(
 )
 
 const LIST_FORMATS = Object.values(LIST_TYPES)
+const CONFLICT_CHOICES = Object.values(CONFLICT_STRATEGIES)
 
 const EXAMPLES = `
 Examples:
@@ -23,13 +30,22 @@ Examples:
     $ mass-file-mover list photos -o plan.txt
     $ $EDITOR plan.txt
     $ mass-file-mover move plan.txt photos sorted --dry-run
-    $ mass-file-mover move plan.txt photos sorted
+    $ mass-file-mover move plan.txt photos sorted --journal undo.json
+
+  Change your mind:
+
+    $ mass-file-mover undo undo.json
+
+  Build the reorganised tree without touching the originals:
+
+    $ mass-file-mover move plan.txt photos sorted --copy
 
   In a listing, a line ending with '/' opens a directory and the indented
   lines below it are its contents. Rename a line to rename the file, move it
   under another directory to move the file, and prefix it with '${DELETE_MARKER}' to
   delete it instead. A name written without an extension moves every file
   sharing that stem, so 'IMG_0042' carries both the .jpg and the .raw.
+  Lines starting with '#' are ignored.
 `
 
 /**
@@ -65,46 +81,96 @@ function parsePositiveInteger (value) {
  */
 function withCommonOptions (command) {
   return command
-    .option('-i, --ignore <pattern>', 'skip paths matching a glob, repeatable', collect, [])
-    .option('--no-default-ignores', `keep ${DEFAULT_IGNORES.join(', ')} in the listing`)
     .option('-v, --verbose', 'also report what was skipped')
     .option('-q, --quiet', 'report only errors and the summary')
+    .option('--json', 'print a machine-readable report on stdout')
     .option('--no-color', 'disable coloured output')
 }
 
 /**
+ * Adds the options for the commands that walk a directory.
+ *
+ * @param {Command} command
+ * @returns {Command}
+ */
+function withWalkOptions (command) {
+  return withCommonOptions(command)
+    .option('-i, --ignore <pattern>', 'skip paths matching a glob, repeatable', collect, [])
+    .option('--no-default-ignores', `keep ${DEFAULT_IGNORES.join(', ')} in the listing`)
+}
+
+/**
  * Turns parsed options into the shape the library functions expect.
+ *
+ * With --json the human-readable lines move to stderr, so stdout carries
+ * nothing but the JSON document.
  *
  * @param {object} options
  * @returns {object}
  */
 function toRunOptions (options) {
   const level = options.quiet ? 'quiet' : (options.verbose ? 'verbose' : 'normal')
+  const toStderr = Boolean(options.json)
 
   return {
+    json: Boolean(options.json),
     ignore: options.ignore ?? [],
     defaultIgnores: options.defaultIgnores !== false,
     logger: createLogger({
       level,
       // Commander defaults --no-color to true, which would force colours on
       // even into a pipe. Only an explicit --no-color turns them off.
-      color: options.color === false ? false : undefined
+      color: options.color === false ? false : undefined,
+      write: toStderr
+        ? (line) => console.error(line)
+        : (line) => console.log(line)
     })
   }
 }
 
 /**
- * Prints the one-line outcome of a move run.
+ * Writes a JSON document to stdout.
+ *
+ * @param {unknown} payload
+ */
+function printJson (payload) {
+  console.log(JSON.stringify(payload, null, 2))
+}
+
+/**
+ * Prints the one-line outcome of a move or copy run.
  *
  * @param {object} summary
  * @param {object} logger
  */
 export function reportSummary (summary, logger) {
-  const parts = [`${summary.moved} ${summary.dryRun ? 'to move' : 'moved'}`]
-  if (summary.copied) parts.push(`${summary.copied} across filesystems`)
+  const done = summary.mode === TRANSFER_MODES.copy ? 'copied' : 'moved'
+  const count = summary[done]
+  const parts = [`${count} ${summary.dryRun ? `to ${summary.mode}` : done}`]
+
+  if (summary.crossDevice) parts.push(`${summary.crossDevice} across filesystems`)
   if (summary.deleted) parts.push(`${summary.deleted} ${summary.dryRun ? 'to delete' : 'deleted'}`)
   if (summary.unchanged) parts.push(`${summary.unchanged} already in place`)
+  if (summary.conflicts) parts.push(`${summary.conflicts} conflicted`)
+  if (summary.skipped) parts.push(`${summary.skipped} skipped`)
   if (summary.missing) parts.push(`${summary.missing} not found`)
+  if (summary.failed) parts.push(`${summary.failed} failed`)
+
+  const line = parts.join(', ')
+  logger.out(summary.dryRun ? `${line} (dry run, nothing changed)` : line)
+}
+
+/**
+ * Prints the one-line outcome of an undo run.
+ *
+ * @param {object} summary
+ * @param {object} logger
+ */
+export function reportUndoSummary (summary, logger) {
+  const parts = [`${summary.restored} ${summary.dryRun ? 'to restore' : 'restored'}`]
+
+  if (summary.removed) parts.push(`${summary.removed} ${summary.dryRun ? 'to remove' : 'removed'}`)
+  if (summary.irreversible) parts.push(`${summary.irreversible} cannot be restored`)
   if (summary.failed) parts.push(`${summary.failed} failed`)
 
   const line = parts.join(', ')
@@ -131,10 +197,22 @@ export function buildProgram (setExitCode = () => {}) {
   const runList = (format, directory, output, options) => {
     const runOptions = toRunOptions(options)
     const count = listDirectory(format, directory, output, runOptions)
+
+    if (runOptions.json) {
+      printJson({
+        format,
+        directory,
+        output,
+        count,
+        files: collectFiles(directory, { exclude: output, logger: runOptions.logger })
+      })
+      return
+    }
+
     runOptions.logger.out(`${count} file${count === 1 ? '' : 's'} listed in '${output}'`)
   }
 
-  withCommonOptions(
+  withWalkOptions(
     program
       .command('list')
       .description('write the files of a directory to an editable listing')
@@ -151,7 +229,7 @@ export function buildProgram (setExitCode = () => {}) {
 
   // The original command names, kept so existing scripts keep working.
   for (const format of LIST_FORMATS) {
-    withCommonOptions(
+    withWalkOptions(
       program
         .command(`list-${format}`)
         .description(`alias for: list --format ${format}`)
@@ -162,7 +240,7 @@ export function buildProgram (setExitCode = () => {}) {
     })
   }
 
-  withCommonOptions(
+  withWalkOptions(
     program
       .command('move')
       .description('apply an edited listing, moving and deleting files')
@@ -170,6 +248,13 @@ export function buildProgram (setExitCode = () => {}) {
       .argument('[directory]', 'directory the files come from', '.')
       .argument('[destination]', 'directory the tree is rebuilt under', '.')
       .option('-n, --dry-run', 'report what would happen, change nothing')
+      .option('-c, --copy', 'copy instead of moving, leaving the source tree intact')
+      .addOption(
+        new Option('--on-conflict <strategy>', 'what to do when the destination is taken')
+          .choices(CONFLICT_CHOICES)
+          .default(CONFLICT_STRATEGIES.rename)
+      )
+      .option('--journal <file>', 'record what was done so that undo can walk it back')
       .option('--no-prune', 'keep source directories that end up empty')
       .option(
         '-j, --concurrency <count>',
@@ -179,18 +264,65 @@ export function buildProgram (setExitCode = () => {}) {
       )
   ).action(async (moveList, directory, destination, options) => {
     const runOptions = toRunOptions(options)
+    const mode = options.copy ? TRANSFER_MODES.copy : TRANSFER_MODES.move
+
     const summary = await moveFiles(moveList, directory, destination, {
       ...runOptions,
+      mode,
+      onConflict: options.onConflict,
       dryRun: Boolean(options.dryRun),
       prune: options.prune !== false,
       concurrency: options.concurrency
     })
 
-    reportSummary(summary, runOptions.logger)
+    if (options.journal && !options.dryRun) {
+      await writeJournal(options.journal, {
+        mode,
+        directory,
+        destination,
+        operations: summary.operations,
+        toolVersion: version
+      })
+      runOptions.logger.info(`Journal written to '${options.journal}'`)
+    }
+
+    if (runOptions.json) {
+      printJson(summary)
+    } else {
+      reportSummary(summary, runOptions.logger)
+    }
 
     // A run that could not carry out everything it was asked to must not look
     // like a success to the calling shell.
     if (summary.failed + summary.missing > 0) {
+      setExitCode(1)
+    }
+  })
+
+  withCommonOptions(
+    program
+      .command('undo')
+      .description('walk back a run recorded with --journal')
+      .argument('<journal>', 'journal file written by move --journal')
+      .option('-n, --dry-run', 'report what would happen, change nothing')
+      .option('--no-prune', 'keep destination directories that end up empty')
+  ).action(async (journalFile, options) => {
+    const runOptions = toRunOptions(options)
+    const journal = await readJournal(journalFile)
+
+    const summary = await undoJournal(journal, {
+      dryRun: Boolean(options.dryRun),
+      prune: options.prune !== false,
+      logger: runOptions.logger
+    })
+
+    if (runOptions.json) {
+      printJson(summary)
+    } else {
+      reportUndoSummary(summary, runOptions.logger)
+    }
+
+    if (summary.failed > 0) {
       setExitCode(1)
     }
   })
