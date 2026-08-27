@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+  test:
+    # This tool builds and parses paths, and every layout it writes has to read
+    # back the same way on every platform. Running the suite on all three is
+    # what keeps a separator bug from shipping again.
+    name: Test (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run test:coverage
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  smoke:
+    # Install the package the way a user would and drive the real binary, so a
+    # broken bin entry or a missing file in the published tarball is caught.
+    name: Packaged CLI
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Pack and install globally
+        run: |
+          npm pack --pack-destination "${{ runner.temp }}"
+          npm install --global "${{ runner.temp }}"/mass-file-mover-*.tgz
+        shell: bash
+
+      - name: Round-trip a tree through the CLI
+        run: |
+          set -e
+          mkdir -p demo/a/b demo/c
+          echo one > demo/a/b/one.txt
+          echo two > demo/a/two.txt
+          echo three > demo/c/three.txt
+
+          mass-file-mover --version
+          mass-file-mover list demo -o plan.txt
+          cat plan.txt
+
+          mass-file-mover move plan.txt demo sorted --dry-run
+          mass-file-mover move plan.txt demo sorted --journal undo.json
+
+          test -f sorted/a/b/one.txt
+          test -f sorted/a/two.txt
+          test -f sorted/c/three.txt
+
+          mass-file-mover undo undo.json
+          test -f demo/a/b/one.txt
+          test -f demo/a/two.txt
+          test -f demo/c/three.txt
+
+          mfm --version
+        shell: bash

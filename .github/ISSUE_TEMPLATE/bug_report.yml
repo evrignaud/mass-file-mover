@@ -1,0 +1,85 @@
+name: Bug report
+description: Something did not move where you expected, or the command failed
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If files ended up somewhere unexpected and you ran with `--journal`,
+        `mass-file-mover undo <journal>` will put the moved ones back.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The command you ran
+      render: shell
+      placeholder: mass-file-mover move plan.txt photos sorted
+    validations:
+      required: true
+
+  - type: textarea
+    id: listing
+    attributes:
+      label: The listing you applied
+      description: >
+        The relevant part of the file, kept as-is. Indentation is what decides
+        where an entry lands, so please do not re-indent it.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: tree
+    attributes:
+      label: The directory it ran against
+      description: >
+        A sketch of the tree, or the listing that
+        `mass-file-mover list <directory>` produced before you edited it.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Run again with `--verbose` if you can.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `mass-file-mover --version`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version`.
+    validations:
+      required: true
