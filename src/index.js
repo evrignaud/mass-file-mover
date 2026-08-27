@@ -1,6 +1,8 @@
 export { DEFAULT_CONCURRENCY, mapWithConcurrency } from './concurrency.js'
 export { DELETE_MARKER, INDENT_WIDTH, LIST_TYPES } from './constants.js'
+export { createIgnoreMatcher, DEFAULT_IGNORES, expandPattern } from './ignore.js'
 export { buildFullTree, collectFiles, listDirectory } from './list.js'
+export { createLogger, LOG_LEVELS, silentLogger } from './logger.js'
 export {
   cleanEmptyFoldersRecursively,
   deleteFile,
@@ -26,5 +28,5 @@ export {
   toPosix
 } from './paths.js'
 export { splitLines, stripBom } from './text.js'
-export { isDotFimDir, walkSync } from './walk.js'
-export { reportSummary, run } from './cli.js'
+export { walkSync } from './walk.js'
+export { buildProgram, reportSummary, run } from './cli.js'

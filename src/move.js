@@ -4,6 +4,8 @@ import path from 'node:path'
 
 import { DEFAULT_CONCURRENCY, mapWithConcurrency } from './concurrency.js'
 import { DELETE_MARKER } from './constants.js'
+import { createIgnoreMatcher } from './ignore.js'
+import { silentLogger } from './logger.js'
 import {
   normalizeDirectory,
   readLevel,
@@ -11,33 +13,32 @@ import {
   splitDirectory
 } from './paths.js'
 import { splitLines } from './text.js'
-import { isDotFimDir, walkSync } from './walk.js'
+import { walkSync } from './walk.js'
 
 /**
  * Indexes every file below `directory` by name and by name-without-extension
  * so a move list entry can be resolved wherever the file happens to live.
  *
  * @param {string} directory
- * @param {string} [moveList] Path of the move list, excluded from the index.
+ * @param {object} [options]
+ * @param {string} [options.exclude] Path of the move list, left out of the index.
+ * @param {(relativePath: string) => boolean} [options.isIgnored]
+ * @param {object} [options.logger]
  * @returns {{ fileList: Map<string, string[]>, withoutExtList: Map<string, string[]> }}
  */
-export function makeFileList (directory, moveList) {
+export function makeFileList (directory, { exclude, isIgnored, logger = silentLogger } = {}) {
   const fileList = new Map()
   const withoutExtList = new Map()
-  const excluded = moveList ? path.resolve(moveList) : null
+  const excluded = exclude ? path.resolve(exclude) : null
 
-  walkSync(directory, (basedir, filename, entry) => {
-    if (entry.isDirectory() || isDotFimDir(basedir)) {
-      return
-    }
-
-    if (excluded && path.resolve(basedir, filename) === excluded) {
+  walkSync(directory, ({ basedir, filename, fullPath }) => {
+    if (excluded && path.resolve(fullPath) === excluded) {
       return
     }
 
     const dirs = fileList.get(filename)
     if (dirs) {
-      console.log(`WARN: File '${filename}' found several times`)
+      logger.warn(`File '${filename}' found several times`)
       dirs.push(basedir)
     } else {
       fileList.set(filename, [basedir])
@@ -52,7 +53,7 @@ export function makeFileList (directory, moveList) {
     } else {
       withoutExtList.set(withoutExt, [filename])
     }
-  })
+  }, { isIgnored, logger })
 
   return { fileList, withoutExtList }
 }
@@ -93,7 +94,7 @@ export function parseMoveList (content) {
     .join('/')
 
   for (const rawLine of splitLines(content)) {
-    if (!rawLine.trim()) {
+    if (!rawLine.trim() || rawLine.trimStart().startsWith('#')) {
       continue
     }
 
@@ -129,11 +130,12 @@ export function parseMoveList (content) {
 
 /**
  * Resolves a move list into the concrete source/target pairs it describes,
- * without touching the filesystem beyond the collision checks.
+ * without changing anything on disk.
  *
  * Planning every target up front, before a single file is renamed, is what
  * lets collisions be resolved deterministically: each chosen name is reserved,
- * so two entries landing on the same destination cannot pick it twice.
+ * so two entries landing on the same destination cannot pick it twice. It is
+ * also what makes `--dry-run` an honest preview rather than a second code path.
  *
  * @param {object} params
  * @param {Array<{ type: string, relative?: string, target?: string }>} params.operations
@@ -141,10 +143,12 @@ export function parseMoveList (content) {
  * @param {Map<string, string[]>} params.withoutExtList
  * @param {string} params.directory
  * @param {string} params.baseDestinationDir
+ * @param {object} [params.logger]
  * @returns {{
  *   moves: Array<{ oldPath: string, target: string }>,
  *   deletes: string[],
  *   directories: string[],
+ *   unchanged: string[],
  *   missing: string[]
  * }}
  */
@@ -153,11 +157,13 @@ export function planOperations ({
   fileList,
   withoutExtList,
   directory,
-  baseDestinationDir
+  baseDestinationDir,
+  logger = silentLogger
 }) {
   const moves = []
   const deletes = []
   const directories = []
+  const unchanged = []
   const missing = []
 
   const claimedSources = new Set()
@@ -169,15 +175,17 @@ export function planOperations ({
       if (claimedSources.has(oldPath)) {
         continue
       }
+      claimedSources.add(oldPath)
 
       const target = findNonExistingFilename(desiredTarget, { reserved: reservedTargets })
+
       if (path.resolve(oldPath) === path.resolve(target)) {
         // Already where the list wants it.
-        claimedSources.add(oldPath)
+        unchanged.push(oldPath)
+        logger.debug(`Unchanged '${oldPath}'`)
         continue
       }
 
-      claimedSources.add(oldPath)
       reservedTargets.add(path.resolve(target))
       moves.push({ oldPath, target })
     }
@@ -195,7 +203,7 @@ export function planOperations ({
       const sourceDirs = fileList.get(target)
       if (!sourceDirs) {
         missing.push(target)
-        console.error(`ERR: Cannot remove '${target}': no such file under '${directory}'`)
+        logger.error(`Cannot remove '${target}': no such file under '${directory}'`)
         continue
       }
 
@@ -233,11 +241,11 @@ export function planOperations ({
 
     if (!managed) {
       missing.push(filename)
-      console.error(`ERR: File '${filename}' does not exist`)
+      logger.error(`File '${filename}' does not exist`)
     }
   }
 
-  return { moves, deletes, directories, missing }
+  return { moves, deletes, directories, unchanged, missing }
 }
 
 /**
@@ -248,16 +256,50 @@ export function planOperations ({
  * @param {string} [moveList]
  * @param {string} [directory]
  * @param {string} [baseDestinationDir]
- * @param {{ concurrency?: number }} [options]
- * @returns {Promise<{ moved: number, copied: number, deleted: number, failed: number, missing: number }>}
+ * @param {object} [options]
+ * @param {boolean} [options.dryRun] Report the plan without applying it.
+ * @param {boolean} [options.prune] Remove source directories left empty.
+ * @param {number} [options.concurrency]
+ * @param {string[]} [options.ignore]
+ * @param {boolean} [options.defaultIgnores]
+ * @param {object} [options.logger]
+ * @returns {Promise<{
+ *   moved: number, copied: number, deleted: number,
+ *   unchanged: number, failed: number, missing: number, dryRun: boolean
+ * }>}
  */
 export async function moveFiles (
   moveList = 'fileList',
   directory = '.',
   baseDestinationDir = '.',
-  { concurrency = DEFAULT_CONCURRENCY } = {}
+  options = {}
 ) {
-  const { fileList, withoutExtList } = makeFileList(directory, moveList)
+  const {
+    dryRun = false,
+    prune = true,
+    concurrency = DEFAULT_CONCURRENCY,
+    ignore = [],
+    defaultIgnores = true,
+    logger = silentLogger
+  } = options
+
+  if (!fs.existsSync(moveList)) {
+    throw new Error(`Move list '${moveList}' does not exist`)
+  }
+
+  if (!fs.existsSync(directory)) {
+    throw new Error(`Directory '${directory}' does not exist`)
+  }
+
+  const isIgnored = createIgnoreMatcher(ignore, { useDefaults: defaultIgnores })
+  logger.debug(`Ignoring: ${isIgnored.patterns.join(', ') || '(nothing)'}`)
+
+  const { fileList, withoutExtList } = makeFileList(directory, {
+    exclude: moveList,
+    isIgnored,
+    logger
+  })
+
   const operations = parseMoveList(await fsp.readFile(moveList, 'utf8'))
 
   const plan = planOperations({
@@ -265,25 +307,40 @@ export async function moveFiles (
     fileList,
     withoutExtList,
     directory,
-    baseDestinationDir
+    baseDestinationDir,
+    logger
   })
 
   const summary = {
     moved: 0,
     copied: 0,
     deleted: 0,
+    unchanged: plan.unchanged.length,
     failed: 0,
-    missing: plan.missing.length
+    missing: plan.missing.length,
+    dryRun
+  }
+
+  if (dryRun) {
+    for (const filename of plan.deletes) {
+      logger.info(`Would remove '${filename}'`)
+      summary.deleted++
+    }
+    for (const { oldPath, target } of plan.moves) {
+      logger.info(`Would move '${oldPath}' --> '${target}'`)
+      summary.moved++
+    }
+    return summary
   }
 
   for (const dirname of new Set(plan.directories)) {
-    if (!await ensureDirectory(dirname)) {
+    if (!await ensureDirectory(dirname, logger)) {
       summary.failed++
     }
   }
 
   for (const filename of plan.deletes) {
-    if (await deleteFile(filename)) {
+    if (await deleteFile(filename, logger)) {
       summary.deleted++
     } else {
       summary.failed++
@@ -297,14 +354,16 @@ export async function moveFiles (
       if (copied) {
         summary.copied++
       }
-      console.log(`Moved${copied ? ' (using copy)' : ''} '${oldPath}' --> '${target}'`)
+      logger.info(`Moved${copied ? ' (using copy)' : ''} '${oldPath}' --> '${target}'`)
     } catch (error) {
       summary.failed++
-      console.error(`ERR: Error moving '${oldPath}' to '${target}'`, error.message)
+      logger.error(`Cannot move '${oldPath}' to '${target}': ${error.message}`)
     }
   })
 
-  await cleanEmptyFoldersRecursively(directory)
+  if (prune) {
+    await cleanEmptyFoldersRecursively(directory, { logger })
+  }
 
   return summary
 }
@@ -313,14 +372,15 @@ export async function moveFiles (
  * Creates `dirname` and any missing parent directory.
  *
  * @param {string} dirname
+ * @param {object} [logger]
  * @returns {Promise<boolean>} Whether the directory exists afterwards.
  */
-export async function ensureDirectory (dirname) {
+export async function ensureDirectory (dirname, logger = silentLogger) {
   try {
     await fsp.mkdir(dirname, { recursive: true })
     return true
   } catch (error) {
-    console.error(`ERR: Cannot create directory ${dirname}`, error.message)
+    logger.error(`Cannot create directory ${dirname}: ${error.message}`)
     return false
   }
 }
@@ -329,15 +389,16 @@ export async function ensureDirectory (dirname) {
  * Removes a single file, reporting failures without throwing.
  *
  * @param {string} filename
+ * @param {object} [logger]
  * @returns {Promise<boolean>} Whether the file was removed.
  */
-export async function deleteFile (filename) {
+export async function deleteFile (filename, logger = silentLogger) {
   try {
     await fsp.unlink(filename)
-    console.log(`Removed file '${filename}'`)
+    logger.info(`Removed file '${filename}'`)
     return true
   } catch (error) {
-    console.error(`ERR: Cannot remove file ${filename}`, error.message)
+    logger.error(`Cannot remove file ${filename}: ${error.message}`)
     return false
   }
 }
@@ -407,10 +468,13 @@ export function findNonExistingFilename (fullPath, { reserved, limit = 100000 } 
  * pointed the command at.
  *
  * @param {string} folder
- * @param {{ removeRoot?: boolean }} [options]
+ * @param {{ removeRoot?: boolean, logger?: object }} [options]
  * @returns {Promise<boolean>} Whether `folder` is now empty.
  */
-export async function cleanEmptyFoldersRecursively (folder, { removeRoot = false } = {}) {
+export async function cleanEmptyFoldersRecursively (
+  folder,
+  { removeRoot = false, logger = silentLogger } = {}
+) {
   let entries
   try {
     entries = await fsp.readdir(folder, { withFileTypes: true })
@@ -420,7 +484,10 @@ export async function cleanEmptyFoldersRecursively (folder, { removeRoot = false
 
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      await cleanEmptyFoldersRecursively(path.join(folder, entry.name), { removeRoot: true })
+      await cleanEmptyFoldersRecursively(path.join(folder, entry.name), {
+        removeRoot: true,
+        logger
+      })
     }
   }
 
@@ -428,9 +495,9 @@ export async function cleanEmptyFoldersRecursively (folder, { removeRoot = false
   if (remaining.length === 0 && removeRoot) {
     try {
       await fsp.rmdir(folder)
-      console.log(`Removed empty folder '${folder}'`)
+      logger.info(`Removed empty folder '${folder}'`)
     } catch (error) {
-      console.error(`ERR: Cannot remove folder ${folder}`, error.message)
+      logger.error(`Cannot remove folder ${folder}: ${error.message}`)
     }
   }
 
