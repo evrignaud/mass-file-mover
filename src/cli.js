@@ -15,7 +15,7 @@ const USAGE = `Invalid usage.
  */
 export function badUsage () {
   console.error(USAGE)
-  process.exit(-1)
+  process.exit(1)
 }
 
 /**

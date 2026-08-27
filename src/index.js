@@ -1,5 +1,5 @@
 export { DELETE_MARKER, INDENT_WIDTH, LIST_TYPES } from './constants.js'
-export { listDirectory, writeFileList, writeFullTree } from './list.js'
+export { buildFullTree, collectFiles, listDirectory } from './list.js'
 export {
   cleanEmptyFoldersRecursively,
   deleteFile,
@@ -7,16 +7,22 @@ export {
   makeFileList,
   mkdirRecurs,
   moveFile,
-  moveFiles
+  moveFiles,
+  parseMoveList
 } from './move.js'
 export {
   buildLevel,
-  buildNewDirectory,
   comparePaths,
   compareStrings,
   findNewParts,
-  generateFullPath,
-  sortPaths
+  fromPosix,
+  normalizeDirectory,
+  readLevel,
+  resolveDestination,
+  sortPaths,
+  splitDirectory,
+  toPosix
 } from './paths.js'
+export { splitLines, stripBom } from './text.js'
 export { isDotFimDir, walkSync } from './walk.js'
 export { run } from './cli.js'

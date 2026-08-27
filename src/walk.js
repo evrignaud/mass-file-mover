@@ -9,19 +9,25 @@ import path from 'node:path'
  * @returns {boolean}
  */
 export function isDotFimDir (directory) {
-  return directory.includes('.fim/') || directory.endsWith('.fim')
+  return directory
+    .split(path.sep)
+    .includes('.fim')
 }
 
 /**
  * Synchronously lists `dir` and all its descendants, calling `iterator`
  * for each entry.
  *
+ * Directory entries are read with their types, so symbolic links are reported
+ * as links and are never descended into. That keeps a link pointing back at an
+ * ancestor from sending the walk into an endless loop.
+ *
  * @param {string} dir Path to the base directory of the listing.
- * @param {(basedir: string, filename: string, stat: fs.Stats) => void} iterator
+ * @param {(basedir: string, filename: string, entry: fs.Dirent) => void} iterator
  *   Called for each entry with:
- *   - `basedir`: directory holding the entry (relative to `dir`)
+ *   - `basedir`: directory holding the entry, prefixed by `dir`
  *   - `filename`: name of the entry
- *   - `stat`: result of `fs.statSync`
+ *   - `entry`: the directory entry, exposing `isDirectory()` and friends
  */
 export function walkSync (dir, iterator) {
   const dirs = [dir]
@@ -29,29 +35,20 @@ export function walkSync (dir, iterator) {
   while (dirs.length) {
     const directory = dirs.shift()
 
-    let files
+    let entries
     try {
-      files = fs.readdirSync(directory)
+      entries = fs.readdirSync(directory, { withFileTypes: true })
     } catch (error) {
       console.error(`ERR: Cannot read directory ${directory}`, error.message)
       continue
     }
 
-    for (const file of files) {
-      const fullPath = path.join(directory, file)
-      let stat
-      try {
-        stat = fs.statSync(fullPath)
-        if (stat && stat.isDirectory()) {
-          dirs.push(fullPath)
-        }
-      } catch (error) {
-        console.error(`ERR: Cannot stat ${fullPath}`, error.message)
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        dirs.push(path.join(directory, entry.name))
       }
 
-      if (stat) {
-        iterator(directory, file, stat)
-      }
+      iterator(directory, entry.name, entry)
     }
   }
 }
