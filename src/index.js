@@ -1,14 +1,16 @@
+export { DEFAULT_CONCURRENCY, mapWithConcurrency } from './concurrency.js'
 export { DELETE_MARKER, INDENT_WIDTH, LIST_TYPES } from './constants.js'
 export { buildFullTree, collectFiles, listDirectory } from './list.js'
 export {
   cleanEmptyFoldersRecursively,
   deleteFile,
+  ensureDirectory,
   findNonExistingFilename,
   makeFileList,
-  mkdirRecurs,
   moveFile,
   moveFiles,
-  parseMoveList
+  parseMoveList,
+  planOperations
 } from './move.js'
 export {
   buildLevel,
@@ -25,4 +27,4 @@ export {
 } from './paths.js'
 export { splitLines, stripBom } from './text.js'
 export { isDotFimDir, walkSync } from './walk.js'
-export { run } from './cli.js'
+export { reportSummary, run } from './cli.js'
