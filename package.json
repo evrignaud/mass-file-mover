@@ -1,10 +1,63 @@
 {
   "name": "mass-file-mover",
-  "version": "1.0.0",
-  "description": "Command line tool that move a complete tree of files",
-  "main": "index.js",
-  "scripts": {
+  "version": "2.0.0",
+  "description": "Command line tool that reorganises a complete tree of files from an editable plain-text listing",
+  "keywords": [
+    "cli",
+    "files",
+    "file-tree",
+    "move",
+    "rename",
+    "reorganize",
+    "batch",
+    "bulk"
+  ],
+  "homepage": "https://github.com/evrignaud/mass-file-mover#readme",
+  "bugs": {
+    "url": "https://github.com/evrignaud/mass-file-mover/issues"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evrignaud/mass-file-mover.git"
+  },
+  "license": "MIT",
   "author": "Etienne Vrignaud",
-  "license": ""
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "main": "./src/index.js",
+  "bin": {
+    "mass-file-mover": "bin/mass-file-mover.js",
+    "mfm": "bin/mass-file-mover.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "check": "npm run lint && npm run test"
+  },
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@stylistic/eslint-plugin": "5.10.0",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "10.9.1",
+    "globals": "17.11.0",
+    "vitest": "4.1.11"
+  },
+  "dependencies": {
+    "commander": "15.0.0",
+    "picocolors": "1.1.1"
+  }
 }

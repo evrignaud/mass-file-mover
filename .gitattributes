@@ -1,0 +1,11 @@
+# Normalise line endings: LF in the repository, LF in working copies.
+* text=auto eol=lf
+
+# Keep the CLI entry point executable and LF-terminated so the shebang works.
+bin/* text eol=lf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.zip binary
